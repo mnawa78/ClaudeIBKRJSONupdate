@@ -4,7 +4,7 @@ import time
 import requests
 import logging
 from flask import Flask, request, render_template, jsonify, abort
-from flask_socketio import SocketIO, emit, disconnect
+from flask_socketio import SocketIO, emit
 from datetime import datetime
 
 # Configure enhanced logging
@@ -41,7 +41,18 @@ connection_state = {"connected": False, "last_heartbeat": None}
 
 @app.route('/')
 def index():
-    webhook_url = request.host_url + "webhook"
+    """Serve the index page with proper webhook URL."""
+    # Get the base URL, defaulting to HTTPS if we're on Heroku
+    is_heroku = 'DYNO' in os.environ
+    
+    if is_heroku:
+        # Force HTTPS on Heroku
+        base_url = request.host_url.replace('http://', 'https://')
+    else:
+        # Use whatever protocol is being used
+        base_url = request.host_url
+        
+    webhook_url = base_url + "webhook"
     app.logger.info(f"Serving index page. Webhook URL: {webhook_url}")
     return render_template('index.html', webhook_url=webhook_url)
 
