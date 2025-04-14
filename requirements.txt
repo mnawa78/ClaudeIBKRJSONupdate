@@ -1,0 +1,17 @@
+# Flask and web server
+Flask==2.3.3
+gunicorn==21.2.0
+Werkzeug==2.3.7
+
+# Socket.IO
+flask-socketio==5.3.6
+python-socketio==5.10.0
+python-engineio==4.8.0
+gevent==23.9.1
+gevent-websocket==0.10.1
+
+# HTTP requests
+requests==2.31.0
+
+# Environment and utilities
+python-dotenv==1.0.0
