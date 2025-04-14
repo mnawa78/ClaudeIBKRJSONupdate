@@ -373,7 +373,27 @@
         // Listen for connection status updates
         socket.on('connection_status', function(data) {
             console.log('Connection status update:', data);
-            updateConnectionStatus(data.success, data.message);
+            
+            // Reset button states
+            const connectBtn = document.getElementById('connect-btn');
+            const disconnectBtn = document.getElementById('disconnect-btn');
+            
+            // Always reset the button state to normal
+            connectBtn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Connect';
+            disconnectBtn.innerHTML = '<i class="bi bi-box-arrow-left"></i> Disconnect';
+            
+            // Update the connection indicator and button states
+            if (data.success) {
+                // Connected
+                updateConnectionStatus(true, data.message);
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+            } else {
+                // Not connected
+                updateConnectionStatus(false, data.message);
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+            }
         });
         
         // Listen for heartbeat events
@@ -427,7 +447,7 @@
             }
         });
         
-// Listen for webhook errors
+        // Listen for webhook errors
         socket.on('webhook_error', function(data) {
             console.error('Webhook error:', data);
             showToast('Webhook error: ' + data.message, 'error');
@@ -462,6 +482,11 @@
             .then(data => {
                 console.log('Connection response:', data);
                 // Socket.IO will handle the status update
+                // But we need to reset the button if there's an error
+                if (!data.success) {
+                    connectBtn.disabled = false;
+                    connectBtn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Connect';
+                }
             })
             .catch(error => {
                 console.error('Connection error:', error);
@@ -490,6 +515,11 @@
             .then(data => {
                 console.log('Disconnection response:', data);
                 // Socket.IO will handle the status update
+                // But we need to reset the button if there's an error
+                if (!data.success) {
+                    this.disabled = false;
+                    this.innerHTML = '<i class="bi bi-box-arrow-left"></i> Disconnect';
+                }
             })
             .catch(error => {
                 console.error('Disconnection error:', error);
