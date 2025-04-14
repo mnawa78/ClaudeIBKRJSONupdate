@@ -161,39 +161,73 @@ def webhook_receiver():
         socketio.emit('webhook_error', {"message": "Invalid webhook data received"})
         return "Invalid data", 400
 
+    # Log the complete data
     app.logger.info(f"[WEBHOOK] Received data: {json.dumps(data)}")
-    socketio.emit('new_webhook', data)
+    
+    # IMPORTANT: Make sure we send this to ALL connected clients
+    socketio.emit('new_webhook', data, broadcast=True)
 
-    # Save order in memory in case we need to retry
-    order_id = data.get('ORDER_ID', str(time.time()))
+    # Generate a unique order ID if one doesn't exist
+    order_id = data.get('ORDER_ID', f"order-{int(time.time())}")
+    
+    # Emit order received status to all clients
     socketio.emit('order_status', {
         "order_id": order_id,
         "status": "received",
-        "message": "Order received, forwarding to backend"
-    })
+        "message": "Order received, forwarding to backend",
+        "data": data  # Include the original data for completeness
+    }, broadcast=True)
 
     # Forward to backend
-    result, error = send_backend_request("order", json_data=data)
-    
-    if error:
-        error_msg = f"Error forwarding order: {error['error']}"
-        app.logger.error(error_msg)
+    headers = {}
+    if CONNECTOR_API_KEY:
+        headers['X-API-KEY'] = CONNECTOR_API_KEY
+
+    backend_order_url = f"{CONNECTOR_URL}/order"
+    app.logger.info(f"[WEBHOOK] Forwarding order to backend: {backend_order_url}")
+
+    try:
+        # Increased timeout for orders
+        timeout_seconds = 60
+        response = requests.post(backend_order_url, json=data, headers=headers, timeout=timeout_seconds)
+        
+        # Try to parse JSON response
+        try:
+            response_data = response.json()
+        except ValueError:
+            app.logger.warning(f"[WEBHOOK] Backend returned non-JSON response: {response.text}")
+            response_data = {"message": f"Backend response: {response.text}"}
+        
+        # Add order ID if not present
+        if "order_id" not in response_data:
+            response_data["order_id"] = order_id
+            
+        app.logger.info(f"[WEBHOOK] Backend response: Status={response.status_code}, Data={response_data}")
+        
+        # Emit order execution status to all clients
+        socketio.emit('order_status', {
+            "order_id": response_data.get("order_id", order_id),
+            "status": "processed" if response.status_code < 400 else "failed",
+            "message": response_data.get("message", "Order processed"),
+            "details": response_data,
+            "data": data  # Include the original data
+        }, broadcast=True)
+        
+        return "Webhook received and processed", 200
+        
+    except Exception as e:
+        error_msg = f"[WEBHOOK] Error processing order: {str(e)}"
+        app.logger.error(error_msg, exc_info=True)
+        
+        # Emit error status to all clients
         socketio.emit('order_status', {
             "order_id": order_id,
             "status": "failed",
-            "message": error_msg
-        })
-        return error_msg, error['status_code']
-    
-    # Success
-    socketio.emit('order_status', {
-        "order_id": order_id,
-        "status": "processed",
-        "message": "Order successfully processed by backend",
-        "details": result
-    })
-    
-    return "Webhook received and processed successfully", 200
+            "message": f"Error: {str(e)}",
+            "data": data  # Include the original data
+        }, broadcast=True)
+        
+        return "Error processing webhook", 500
 
 @app.route('/status', methods=['GET'])
 def status():
