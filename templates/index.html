@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IBKR TradingView Connector</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body {
+            padding-top: 20px;
+            background-color: #f8f9fa;
+        }
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .card-header {
+            font-weight: bold;
+            background-color: #f1f8ff;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 0.85rem;
+        }
+        .json-key { color: #0070bb; }
+        .json-value { color: #d14000; }
+        .json-string { color: #008000; }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-disconnected { background-color: #dc3545; }
+        .status-connected { background-color: #28a745; }
+        .status-connecting { background-color: #ffc107; animation: blinker 1s linear infinite; }
+        
+        @keyframes blinker {
+            50% { opacity: 0.5; }
+        }
+        
+        .order-card {
+            transition: all 0.3s;
+            border-left: 5px solid #6c757d;
+        }
+        .order-received { border-left-color: #ffc107; }
+        .order-processing { border-left-color: #17a2b8; }
+        .order-processed { border-left-color: #28a745; }
+        .order-failed { border-left-color: #dc3545; }
+        
+        #connection-info {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            padding: 10px 15px;
+            border-radius: 5px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            font-size: 0.8rem;
+            display: none;
+        }
+        
+        .badge-light-bg {
+            background-color: rgba(0,0,0,0.1);
+            color: #000;
+            font-weight: normal;
+        }
+        
+        .webhook-url-container {
+            position: relative;
+        }
+        
+        .copy-btn {
+            position: absolute;
+            right: 10px;
+            top: 8px;
+            background: transparent;
+            border: none;
+            color: #6c757d;
+            cursor: pointer;
+        }
+        
+        .copy-btn:hover {
+            color: #000;
+        }
+        
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col-12">
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="bi bi-link-45deg"></i> IBKR TradingView Connector
+                        </h5>
+                        <div class="connection-badge">
+                            <span id="connection-indicator" class="status-indicator status-disconnected"></span>
+                            <span id="connection-status">Not Connected</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <form id="connection-form" class="row g-3">
+                            <div class="col-md-4">
+                                <label for="ip" class="form-label">TWS IP Address</label>
+                                <input type="text" class="form-control" id="ip" name="ip" placeholder="127.0.0.1" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="user_id" class="form-label">Client ID</label>
+                                <input type="number" class="form-control" id="user_id" name="user_id" placeholder="1" required min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="account_type" class="form-label">Account Type</label>
+                                <select class="form-select" id="account_type" name="account_type" required>
+                                    <option value="paper">Paper Trading</option>
+                                    <option value="live">Live Trading</option>
+                                </select>
+                            </div>
+                            <div class="col-12 mt-3">
+                                <button type="submit" id="connect-btn" class="btn btn-primary me-2">
+                                    <i class="bi bi-box-arrow-in-right"></i> Connect
+                                </button>
+                                <button type="button" id="disconnect-btn" class="btn btn-danger" disabled>
+                                    <i class="bi bi-box-arrow-left"></i> Disconnect
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-globe"></i> Webhook Information
+                    </div>
+                    <div class="card-body">
+                        <p>Use the following URL in your TradingView webhook alerts:</p>
+                        <div class="webhook-url-container">
+                            <input type="text" class="form-control" id="webhook-url" value="{{ webhook_url }}" readonly>
+                            <button class="copy-btn" id="copy-webhook-url" title="Copy to clipboard">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
+                        </div>
+                        <div class="mt-3">
+                            <p class="mb-2">Example TradingView message format:</p>
+<pre>{
+    "TICKER": "ES!",
+    "ACTION": "BUY",
+    "NEW_STRATEGY_POSITION": "2",
+    "STRATEGY_NAME": "My Strategy"
+}</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between">
+                        <div>
+                            <i class="bi bi-envelope"></i> Orders Received
+                        </div>
+                        <span class="badge bg-secondary" id="orders-count">0</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="webhook-messages">
+                            <div class="text-center text-muted p-4">
+                                <i class="bi bi-inbox fs-3"></i>
+                                <p class="mt-2">No orders received yet</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between">
+                        <div>
+                            <i class="bi bi-lightning"></i> Order Execution
+                        </div>
+                        <span class="badge bg-secondary" id="executions-count">0</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="execution-messages">
+                            <div class="text-center text-muted p-4">
+                                <i class="bi bi-inbox fs-3"></i>
+                                <p class="mt-2">No order executions yet</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Connection Info Panel -->
+    <div id="connection-info">
+        <div><strong>Socket:</strong> <span id="socket-status">Disconnected</span></div>
+        <div><strong>Last Heartbeat:</strong> <span id="last-heartbeat">Never</span></div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <script>
+        // Helper functions
+        function formatJson(json) {
+            if (typeof json === 'string') {
+                try {
+                    json = JSON.parse(json);
+                } catch (e) {
+                    return json;
+                }
+            }
+            
+            // Format JSON with colors
+            let formatted = JSON.stringify(json, null, 2)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, 
+                function (match) {
+                    let cls = 'json-value';
+                    if (/^"/.test(match)) {
+                        if (/:$/.test(match)) {
+                            cls = 'json-key';
+                        } else {
+                            cls = 'json-string';
+                        }
+                    }
+                    return '<span class="' + cls + '">' + match + '</span>';
+                });
+            
+            return formatted;
+        }
+
+        function showToast(message, type = 'info') {
+            const toastId = 'toast-' + Date.now();
+            const bgClass = type === 'success' ? 'bg-success' : 
+                            type === 'error' ? 'bg-danger' : 
+                            type === 'warning' ? 'bg-warning' : 'bg-info';
+            
+            const toastHTML = `
+                <div id="${toastId}" class="toast align-items-center ${bgClass} text-white border-0" role="alert" aria-live="assertive" aria-atomic="true">
+                    <div class="d-flex">
+                        <div class="toast-body">
+                            ${message}
+                        </div>
+                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                    </div>
+                </div>
+            `;
+            
+            document.querySelector('.toast-container').insertAdjacentHTML('beforeend', toastHTML);
+            const toastElement = document.getElementById(toastId);
+            const toast = new bootstrap.Toast(toastElement, {delay: 5000});
+            toast.show();
+            
+            // Auto-remove toast from DOM after it's hidden
+            toastElement.addEventListener('hidden.bs.toast', function () {
+                toastElement.remove();
+            });
+        }
+        
+        function updateConnectionStatus(isConnected, message) {
+            const indicator = document.getElementById('connection-indicator');
+            const statusText = document.getElementById('connection-status');
+            const connectBtn = document.getElementById('connect-btn');
+            const disconnectBtn = document.getElementById('disconnect-btn');
+            
+            if (isConnected) {
+                indicator.className = 'status-indicator status-connected';
+                statusText.textContent = 'Connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                showToast('Connected to IBKR', 'success');
+            } else {
+                indicator.className = 'status-indicator status-disconnected';
+                statusText.textContent = 'Not Connected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                if (message && message.includes('Error')) {
+                    showToast(message, 'error');
+                }
+            }
+        }
+
+        function addOrderMessage(data, container, counterElement) {
+            // Remove placeholder if exists
+            const placeholder = container.querySelector('.text-center.text-muted');
+            if (placeholder) {
+                placeholder.remove();
+            }
+            
+            const time = new Date().toLocaleTimeString();
+            const orderId = data.ORDER_ID || data.order_id || `order-${Date.now()}`;
+            
+            // Determine status class
+            let statusClass = '';
+            if (container.id === 'execution-messages') {
+                statusClass = data.status === 'processed' ? 'order-processed' : 
+                              data.status === 'failed' ? 'order-failed' :
+                              data.status === 'received' ? 'order-received' : '';
+            }
+            
+            const cardHtml = `
+                <div class="order-card ${statusClass} card mb-3" id="${orderId}">
+                    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center">
+                        <div>
+                            ${container.id === 'execution-messages' ? 
+                                `<span class="badge ${data.status === 'processed' ? 'bg-success' : 
+                                                      data.status === 'failed' ? 'bg-danger' : 
+                                                      data.status === 'received' ? 'bg-warning' : 'bg-secondary'}">${data.status || 'unknown'}</span>` : 
+                                ''}
+                            ${data.TICKER || data.ticker || ''}
+                            ${data.ACTION || data.action || ''}
+                        </div>
+                        <span class="badge badge-light-bg">${time}</span>
+                    </div>
+                    <div class="card-body py-2 px-3">
+                        <pre>${formatJson(data)}</pre>
+                    </div>
+                </div>
+            `;
+            
+            // Insert at top of container
+            container.insertAdjacentHTML('afterbegin', cardHtml);
+            
+            // Update counter
+            const counter = document.getElementById(counterElement);
+            counter.textContent = parseInt(counter.textContent) + 1;
+        }
+
+        // Socket.IO Connection
+        let socket = io();
+        
+        socket.on('connect', function() {
+            document.getElementById('socket-status').textContent = 'Connected';
+            document.getElementById('connection-info').style.display = 'block';
+            console.log('Socket.IO connected');
+        });
+        
+        socket.on('disconnect', function() {
+            document.getElementById('socket-status').textContent = 'Disconnected';
+            console.log('Socket.IO disconnected');
+        });
+        
+        socket.on('connect_error', function(error) {
+            console.error('Socket.IO connection error:', error);
+            document.getElementById('socket-status').textContent = 'Error';
+        });
+        
+        // Listen for connection status updates
+        socket.on('connection_status', function(data) {
+            console.log('Connection status update:', data);
+            updateConnectionStatus(data.success, data.message);
+        });
+        
+        // Listen for heartbeat events
+        socket.on('heartbeat', function(data) {
+            console.log('Heartbeat:', data);
+            if (data.status === 'alive') {
+                document.getElementById('last-heartbeat').textContent = new Date().toLocaleTimeString();
+            } else {
+                document.getElementById('last-heartbeat').textContent = 'Failed: ' + (data.error || 'Unknown');
+            }
+        });
+        
+        // Listen for new webhook messages
+        socket.on('new_webhook', function(data) {
+            console.log('New webhook received:', data);
+            addOrderMessage(data, document.getElementById('webhook-messages'), 'orders-count');
+            showToast('New order received', 'info');
+        });
+        
+        // Listen for order status updates
+        socket.on('order_status', function(data) {
+            console.log('Order status update:', data);
+            
+            // Find existing message or add new one
+            const existingOrder = document.getElementById(data.order_id);
+            if (existingOrder) {
+                // Update existing order card
+                existingOrder.className = `order-card order-${data.status} card mb-3`;
+                const statusBadge = existingOrder.querySelector('.badge');
+                if (statusBadge) {
+                    statusBadge.className = `badge ${data.status === 'processed' ? 'bg-success' : 
+                                                     data.status === 'failed' ? 'bg-danger' : 
+                                                     data.status === 'received' ? 'bg-warning' : 'bg-secondary'}`;
+                    statusBadge.textContent = data.status;
+                }
+                
+                const pre = existingOrder.querySelector('pre');
+                if (pre) {
+                    pre.innerHTML = formatJson(data);
+                }
+            } else {
+                // Add new order status card
+                addOrderMessage(data, document.getElementById('execution-messages'), 'executions-count');
+            }
+            
+            // Show toast for order status
+            if (data.status === 'processed') {
+                showToast('Order successfully processed', 'success');
+            } else if (data.status === 'failed') {
+                showToast('Order processing failed: ' + data.message, 'error');
+            }
+        });
+        
+        // Listen for webhook errors
+        socket.on('
