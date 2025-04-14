@@ -223,6 +223,39 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
     <script>
+        // Debug logging function
+        function debugLog(message, data) {
+            console.log(`[DEBUG] ${message}`, data);
+            // Add a debug element to the page
+            const debugElement = document.getElementById('debug-log') || 
+                (function() {
+                    const el = document.createElement('div');
+                    el.id = 'debug-log';
+                    el.style.position = 'fixed';
+                    el.style.bottom = '10px';
+                    el.style.left = '10px';
+                    el.style.maxHeight = '200px';
+                    el.style.overflow = 'auto';
+                    el.style.backgroundColor = 'rgba(0,0,0,0.7)';
+                    el.style.color = 'white';
+                    el.style.padding = '10px';
+                    el.style.fontSize = '12px';
+                    el.style.fontFamily = 'monospace';
+                    el.style.zIndex = '9999';
+                    document.body.appendChild(el);
+                    return el;
+                })();
+            
+            const logItem = document.createElement('div');
+            logItem.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+            debugElement.appendChild(logItem);
+            
+            // Limit to 10 messages
+            if (debugElement.children.length > 10) {
+                debugElement.removeChild(debugElement.children[0]);
+            }
+        }
+        
         // Helper functions
         function formatJson(json) {
             if (typeof json === 'string') {
@@ -306,6 +339,8 @@
         }
 
         function addOrderMessage(data, container, counterElement) {
+            debugLog(`Adding order message to ${container.id}`, data);
+            
             // Remove placeholder if exists
             const placeholder = container.querySelector('.text-center.text-muted');
             if (placeholder) {
@@ -332,8 +367,8 @@
                                                       data.status === 'failed' ? 'bg-danger' : 
                                                       data.status === 'received' ? 'bg-warning' : 'bg-secondary'}">${data.status || 'unknown'}</span>` : 
                                 ''}
-                            ${data.TICKER || data.ticker || ''}
-                            ${data.ACTION || data.action || ''}
+                            ${data.TICKER || data.ticker || data.data?.TICKER || ''}
+                            ${data.ACTION || data.action || data.data?.ACTION || ''}
                         </div>
                         <span class="badge badge-light-bg">${time}</span>
                     </div>
@@ -370,13 +405,18 @@
             document.getElementById('socket-status').textContent = 'Error';
         });
         
-        // Listen for connection status updates
+        // Listen for connection status
+
+// Listen for connection status updates
         socket.on('connection_status', function(data) {
             console.log('Connection status update:', data);
+            debugLog('Connection status update', data);
             
             // Reset button states
             const connectBtn = document.getElementById('connect-btn');
             const disconnectBtn = document.getElementById('disconnect-btn');
+            const indicator = document.getElementById('connection-indicator');
+            const statusText = document.getElementById('connection-status');
             
             // Always reset the button state to normal
             connectBtn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Connect';
@@ -385,14 +425,20 @@
             // Update the connection indicator and button states
             if (data.success) {
                 // Connected
-                updateConnectionStatus(true, data.message);
+                indicator.className = 'status-indicator status-connected';
+                statusText.textContent = 'Connected';
                 connectBtn.disabled = true;
                 disconnectBtn.disabled = false;
+                showToast('Connected to IBKR', 'success');
             } else {
                 // Not connected
-                updateConnectionStatus(false, data.message);
+                indicator.className = 'status-indicator status-disconnected';
+                statusText.textContent = 'Not Connected';
                 connectBtn.disabled = false;
                 disconnectBtn.disabled = true;
+                if (data.message && data.message.includes('Error')) {
+                    showToast(data.message, 'error');
+                }
             }
         });
         
@@ -409,6 +455,7 @@
         // Listen for new webhook messages
         socket.on('new_webhook', function(data) {
             console.log('New webhook received:', data);
+            debugLog('New webhook received', data);
             addOrderMessage(data, document.getElementById('webhook-messages'), 'orders-count');
             showToast('New order received', 'info');
         });
@@ -416,6 +463,7 @@
         // Listen for order status updates
         socket.on('order_status', function(data) {
             console.log('Order status update:', data);
+            debugLog('Order status update', data);
             
             // Find existing message or add new one
             const existingOrder = document.getElementById(data.order_id);
@@ -450,6 +498,7 @@
         // Listen for webhook errors
         socket.on('webhook_error', function(data) {
             console.error('Webhook error:', data);
+            debugLog('Webhook error', data);
             showToast('Webhook error: ' + data.message, 'error');
         });
 
@@ -481,15 +530,20 @@
             })
             .then(data => {
                 console.log('Connection response:', data);
-                // Socket.IO will handle the status update
-                // But we need to reset the button if there's an error
+                debugLog('Connection response', data);
+                
+                // If not successful, manually reset the button
                 if (!data.success) {
                     connectBtn.disabled = false;
                     connectBtn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Connect';
+                    indicator.className = 'status-indicator status-disconnected';
+                    statusText.textContent = 'Not Connected';
                 }
             })
             .catch(error => {
                 console.error('Connection error:', error);
+                debugLog('Connection error', error);
+                
                 // Reset UI on error
                 connectBtn.disabled = false;
                 connectBtn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Connect';
@@ -500,8 +554,11 @@
         });
         
         document.getElementById('disconnect-btn').addEventListener('click', function() {
-            this.disabled = true;
-            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Disconnecting...';
+            const disconnectBtn = document.getElementById('disconnect-btn');
+            const connectBtn = document.getElementById('connect-btn');
+            
+            disconnectBtn.disabled = true;
+            disconnectBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Disconnecting...';
             
             fetch('/disconnect', {
                 method: 'POST'
@@ -514,17 +571,33 @@
             })
             .then(data => {
                 console.log('Disconnection response:', data);
-                // Socket.IO will handle the status update
-                // But we need to reset the button if there's an error
+                debugLog('Disconnection response', data);
+                
+                // Always reset buttons after disconnect attempt
+                disconnectBtn.innerHTML = '<i class="bi bi-box-arrow-left"></i> Disconnect';
+                disconnectBtn.disabled = true;
+                connectBtn.disabled = false;
+                
+                // If not successful, show error but keep disconnect button enabled
                 if (!data.success) {
-                    this.disabled = false;
-                    this.innerHTML = '<i class="bi bi-box-arrow-left"></i> Disconnect';
+                    disconnectBtn.disabled = false;
+                    showToast('Disconnect failed: ' + (data.message || 'Unknown error'), 'error');
+                } else {
+                    // Update UI for disconnected state
+                    const indicator = document.getElementById('connection-indicator');
+                    const statusText = document.getElementById('connection-status');
+                    indicator.className = 'status-indicator status-disconnected';
+                    statusText.textContent = 'Not Connected';
                 }
             })
             .catch(error => {
                 console.error('Disconnection error:', error);
-                this.disabled = false;
-                this.innerHTML = '<i class="bi bi-box-arrow-left"></i> Disconnect';
+                debugLog('Disconnection error', error);
+                
+                // Reset buttons
+                disconnectBtn.disabled = false;
+                disconnectBtn.innerHTML = '<i class="bi bi-box-arrow-left"></i> Disconnect';
+                connectBtn.disabled = false;
                 showToast('Disconnect failed: ' + error.message, 'error');
             });
         });
@@ -571,3 +644,4 @@
     </script>
 </body>
 </html>
+        
