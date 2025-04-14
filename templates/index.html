@@ -427,5 +427,117 @@
             }
         });
         
-        // Listen for webhook errors
-        socket.on('
+// Listen for webhook errors
+        socket.on('webhook_error', function(data) {
+            console.error('Webhook error:', data);
+            showToast('Webhook error: ' + data.message, 'error');
+        });
+
+        // Event Listeners
+        document.getElementById('connection-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const connectBtn = document.getElementById('connect-btn');
+            const indicator = document.getElementById('connection-indicator');
+            const statusText = document.getElementById('connection-status');
+            
+            // Visual feedback during connection
+            connectBtn.disabled = true;
+            connectBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Connecting...';
+            indicator.className = 'status-indicator status-connecting';
+            statusText.textContent = 'Connecting...';
+            
+            const formData = new FormData(this);
+            
+            fetch('/connect', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Connection response:', data);
+                // Socket.IO will handle the status update
+            })
+            .catch(error => {
+                console.error('Connection error:', error);
+                // Reset UI on error
+                connectBtn.disabled = false;
+                connectBtn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Connect';
+                indicator.className = 'status-indicator status-disconnected';
+                statusText.textContent = 'Connection Failed';
+                showToast('Connection failed: ' + error.message, 'error');
+            });
+        });
+        
+        document.getElementById('disconnect-btn').addEventListener('click', function() {
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Disconnecting...';
+            
+            fetch('/disconnect', {
+                method: 'POST'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Disconnection response:', data);
+                // Socket.IO will handle the status update
+            })
+            .catch(error => {
+                console.error('Disconnection error:', error);
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-box-arrow-left"></i> Disconnect';
+                showToast('Disconnect failed: ' + error.message, 'error');
+            });
+        });
+        
+        // Copy webhook URL to clipboard
+        document.getElementById('copy-webhook-url').addEventListener('click', function() {
+            const webhookUrl = document.getElementById('webhook-url');
+            webhookUrl.select();
+            webhookUrl.setSelectionRange(0, 99999); // For mobile devices
+            
+            navigator.clipboard.writeText(webhookUrl.value)
+                .then(() => {
+                    showToast('Webhook URL copied to clipboard', 'success');
+                    const icon = this.querySelector('i');
+                    icon.className = 'bi bi-check-lg';
+                    setTimeout(() => {
+                        icon.className = 'bi bi-clipboard';
+                    }, 2000);
+                })
+                .catch(err => {
+                    console.error('Failed to copy:', err);
+                    showToast('Failed to copy: ' + err, 'error');
+                });
+        });
+        
+        // Check backend status on page load
+        fetch('/status')
+            .then(response => response.json())
+            .then(data => {
+                console.log('Status check:', data);
+                if (data.connected_to_ibkr) {
+                    updateConnectionStatus(true);
+                }
+                
+                if (!data.backend_configured) {
+                    showToast('Warning: Backend URL not configured', 'warning');
+                } else if (data.backend !== 'running') {
+                    showToast('Warning: Backend server is not reachable', 'warning');
+                }
+            })
+            .catch(error => {
+                console.error('Status check error:', error);
+            });
+    </script>
+</body>
+</html>
