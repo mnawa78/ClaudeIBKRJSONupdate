@@ -1,4 +1,4 @@
-# Improved with Enhanced Connection Handling uploaded to mnawa78/ClaudeFrontendworkingcopy + json loads update
+# Improved with Enhanced Connection Handling uploaded to mnawa78/ClaudeFrontendworkingcopy + json loads update2
 
 
 import os
@@ -162,32 +162,44 @@ def disconnect_route():
 
 @app.route('/webhook', methods=['POST'])
 def webhook_receiver():
-    # Try to get JSON data first
+    # Try to get JSON data first using Flask's built-in parser
     data = request.json
     
-    # If standard JSON parsing fails, try handling raw data
+    # Log what we received initially
+    app.logger.info(f"Webhook received with content type: {request.content_type}")
+    app.logger.info(f"Flask parsed JSON data: {data}")
+    
+    # If standard JSON parsing fails but we have data, try manual parsing
     if not data and request.data:
         try:
             # Get raw data as string
             raw_data = request.data.decode('utf-8').strip()
             app.logger.info(f"Raw webhook data: {raw_data}")
             
-            # Fix common TradingView formatting issues
-            if '""' in raw_data:  # Check for double quotes
-                raw_data = raw_data.replace('""', '"')
-            
-            # Ensure we have proper JSON structure
-            if not raw_data.startswith('{'):
-                raw_data = '{' + raw_data
-            if not raw_data.endswith('}'):
-                raw_data = raw_data + '}'
-                
+            # Try to parse the raw data directly first
             try:
                 data = json.loads(raw_data)
-                app.logger.info(f"Successfully parsed manually fixed JSON data: {json.dumps(data)}")
-            except json.JSONDecodeError as e:
-                app.logger.error(f"Failed to parse fixed JSON: {str(e)}")
-                data = None
+                app.logger.info(f"Successfully parsed raw JSON data")
+            except json.JSONDecodeError:
+                # If direct parsing fails, try fixing common TradingView formatting issues
+                app.logger.info("Direct JSON parsing failed, attempting to fix formatting")
+                
+                # Fix common TradingView formatting issues
+                if '""' in raw_data:  # Check for double quotes
+                    raw_data = raw_data.replace('""', '"')
+                
+                # Ensure we have proper JSON structure
+                if not raw_data.startswith('{'):
+                    raw_data = '{' + raw_data
+                if not raw_data.endswith('}'):
+                    raw_data = raw_data + '}'
+                    
+                try:
+                    data = json.loads(raw_data)
+                    app.logger.info(f"Successfully parsed manually fixed JSON data")
+                except json.JSONDecodeError as e:
+                    app.logger.error(f"Failed to parse fixed JSON: {str(e)}")
+                    data = None
         except Exception as e:
             app.logger.error(f"Error processing webhook data: {str(e)}")
             data = None
@@ -197,7 +209,7 @@ def webhook_receiver():
         socketio.emit('webhook_error', {"message": "Invalid webhook data received"})
         return "Invalid data", 400
 
-    app.logger.info(f"[WEBHOOK] Received data: {json.dumps(data)}")
+    app.logger.info(f"[WEBHOOK] Processed data: {json.dumps(data)}")
     socketio.emit('new_webhook', data)
 
     # Save order in memory in case we need to retry
@@ -230,7 +242,6 @@ def webhook_receiver():
     })
     
     return "Webhook received and processed successfully", 200
-
 @app.route('/status', methods=['GET'])
 def status():
     """Check connection status with backend"""
