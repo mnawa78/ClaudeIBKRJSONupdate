@@ -1,4 +1,5 @@
 # Improved with Enhanced Connection Handling uploaded to mnawa78/ClaudeFrontendworkingcopy + json loads update2
+# to accept double quote JSON from TradingView 04152025 0903PM
 
 
 import os
