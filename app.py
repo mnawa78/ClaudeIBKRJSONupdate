@@ -1,3 +1,6 @@
+# Improved with Enhanced Connection Handling uploaded to mnawa78/ClaudeFrontendworkingcopy + json loads update
+
+
 import os
 import json
 import time
@@ -159,7 +162,36 @@ def disconnect_route():
 
 @app.route('/webhook', methods=['POST'])
 def webhook_receiver():
+    # Try to get JSON data first
     data = request.json
+    
+    # If standard JSON parsing fails, try handling raw data
+    if not data and request.data:
+        try:
+            # Get raw data as string
+            raw_data = request.data.decode('utf-8').strip()
+            app.logger.info(f"Raw webhook data: {raw_data}")
+            
+            # Fix common TradingView formatting issues
+            if '""' in raw_data:  # Check for double quotes
+                raw_data = raw_data.replace('""', '"')
+            
+            # Ensure we have proper JSON structure
+            if not raw_data.startswith('{'):
+                raw_data = '{' + raw_data
+            if not raw_data.endswith('}'):
+                raw_data = raw_data + '}'
+                
+            try:
+                data = json.loads(raw_data)
+                app.logger.info(f"Successfully parsed manually fixed JSON data: {json.dumps(data)}")
+            except json.JSONDecodeError as e:
+                app.logger.error(f"Failed to parse fixed JSON: {str(e)}")
+                data = None
+        except Exception as e:
+            app.logger.error(f"Error processing webhook data: {str(e)}")
+            data = None
+    
     if not data:
         app.logger.warning("Received invalid data on /webhook")
         socketio.emit('webhook_error', {"message": "Invalid webhook data received"})
